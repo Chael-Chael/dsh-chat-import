@@ -109,6 +109,11 @@ For TUI compatibility, plugin-provided tools are injected into context by defaul
 
 For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 
+Companion plugins can use the optional `chatImport` host service through
+`ctx.get('chatImport').importPath({ format, path, ...options })` to reuse the same import
+pipeline as `import_chat`. Single-session results include `sessionId`; callers should
+degrade gracefully when the service is absent.
+
 ## Features
 
 | Capability | Entry Point | Description |

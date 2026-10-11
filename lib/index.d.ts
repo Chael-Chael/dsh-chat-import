@@ -23,8 +23,15 @@ export declare const Config: unknown
 /** 本插件消费的 host 公开服务最小面（sessionPersistence / fs / tools / workspaceRegistry）。 */
 export interface HostContext {
   tools: { register(tool: unknown): unknown }
+  provide?(name: string, service: unknown): unknown
   get?(name: string): unknown
   inject?(deps: string[], callback?: (ctx: Record<string, unknown>) => void): unknown
+}
+
+/** Public companion-plugin service registered as `chatImport` by apply(). */
+export interface ChatImportService {
+  /** Import one path or a supported batch path using the same pipeline as import_chat. */
+  importPath(input: ImportChatOptions, signal?: AbortSignal): Promise<ImportResult>
 }
 
 /** config：宿主解析后的条目配置（0.1.7 下 volatile 字段是带 get() 的实时引用）。 */
