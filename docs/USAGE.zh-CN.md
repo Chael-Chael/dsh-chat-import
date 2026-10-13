@@ -11,12 +11,34 @@
 
 > **注意**：导入会即时落盘。当目标代次等于宿主原生代次（面板「导入到」的默认项）时，新会话会即时出现在会话列表，无需刷新；只有显式选择非原生代次（如在 V4 宿主上产出 V3 日志）时，该代次不是宿主当前的内存形状，需刷新页面后才可见。
 
-### 供其它插件调用
+### 供第三方插件调用
 
-插件入口会注册可选的 `chatImport` Host Service。其它插件可以调用
-`ctx.get('chatImport').importPath({ format, path, ...options })`，复用与 `import_chat`
-相同的解析、幂等、压缩和落盘管线；返回值与 `import_chat` 相同，单会话结果包含
-`sessionId`，批量结果包含 `results`。服务缺席时调用方应自行降级。
+插件入口会注册可选的 `chatImport` Host Service。第三方插件可以调用
+`scanDiscover()`、`importPath()`、`importAll()` 和 `resumeSummary()`，复用与工具和命令
+相同的发现、解析、幂等、压缩、批量导入和交接摘要管线。`importPath()` 返回值与
+`import_chat` 相同，单会话结果包含 `sessionId`，批量结果包含 `results`；服务缺席时
+调用方应自行降级。
+
+```js
+const service = ctx.get('chatImport')
+const found = await service.scanDiscover({ format: 'codex', query: '修复' })
+const selected = found.sessions[0]
+const imported = await service.importPath({
+  format: selected.format,
+  path: selected.sourcePath,
+  sessionIds: [selected.sessionId],
+})
+const handoff = await service.resumeSummary({
+  format: selected.format,
+  path: selected.sourcePath,
+  sessionId: selected.sessionId,
+})
+```
+
+`importAll()` 接受与 `scanDiscover()` 相同的筛选参数，并返回批量计数、逐会话结果和
+扫描警告。`resumeSummary()` 当前支持 Claude Code 和 Codex；它只生成可注入当前会话的
+交接摘要，不创建或打开新的 DSH 会话。打开导入后的会话由调用方使用返回的 `sessionId`
+完成。
 
 **导入——单个文件或目录。** 全部来源收敛为一个工具：`import_chat` 接受 `format` 与 `path`；目录递归扫描，每个文件 / 每段对话成为独立会话：
 

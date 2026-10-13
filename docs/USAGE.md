@@ -11,13 +11,35 @@
 
 > **Note:** imports persist to disk immediately. When the target generation equals the host's native generation (the panel's default), the new sessions appear in the session list immediately with no refresh; only an explicitly chosen non-native generation (e.g. producing a V3 log on a V4 host) is not the host's current in-memory shape and appears after a page refresh.
 
-### For companion plugins
+### For third-party plugins
 
-The plugin also registers an optional `chatImport` host service. Companion plugins can call
-`ctx.get('chatImport').importPath({ format, path, ...options })` to reuse the same parsing,
-idempotency, compaction and persistence pipeline as `import_chat`. The return value has the
-same shape as `import_chat`: single-session imports include `sessionId`, while batch imports
-include `results`. Callers should degrade gracefully when the service is absent.
+The plugin also registers an optional `chatImport` host service. Third-party plugins can call
+`scanDiscover()`, `importPath()`, `importAll()`, and `resumeSummary()` to reuse the same
+discovery, parsing, idempotency, compaction, batch-import, and handoff-summary pipelines as
+the built-in tools and commands. `importPath()` has the same result shape as `import_chat`:
+single-session imports include `sessionId`, while batch imports include `results`. Callers
+should degrade gracefully when the service is absent.
+
+```js
+const service = ctx.get('chatImport')
+const found = await service.scanDiscover({ format: 'codex', query: 'fix' })
+const selected = found.sessions[0]
+const imported = await service.importPath({
+  format: selected.format,
+  path: selected.sourcePath,
+  sessionIds: [selected.sessionId],
+})
+const handoff = await service.resumeSummary({
+  format: selected.format,
+  path: selected.sourcePath,
+  sessionId: selected.sessionId,
+})
+```
+
+`importAll()` accepts the same filters as `scanDiscover()` and returns batch counts,
+per-session results, and scan warnings. `resumeSummary()` currently supports Claude Code and
+Codex; it creates a handoff summary for injection into the current session and does not create
+or open a new DSH session. The caller opens an imported session with the returned `sessionId`.
 
 **Import — a single file or a directory.** One tool covers every source: `import_chat` takes a `format` and a `path`; directories are scanned recursively and each file / conversation becomes its own session:
 

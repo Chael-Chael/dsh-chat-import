@@ -109,9 +109,10 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 
 完整工具 / 命令用法见 **[docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)**。
 
-其它插件可以通过可选的 `chatImport` Host Service 调用
-`ctx.get('chatImport').importPath({ format, path, ...options })`，复用与 `import_chat`
-相同的导入管线。单会话返回值包含 `sessionId`；调用方应在服务缺席时自行降级。
+第三方插件可以通过可选的 `chatImport` Host Service 调用
+`scanDiscover()`、`importPath()`、`importAll()` 和 `resumeSummary()`，复用与工具和命令
+相同的发现、导入、批量导入和交接摘要管线。单会话导入返回值包含 `sessionId`；调用方
+应在服务缺席时自行降级。
 
 ## 功能一览
 

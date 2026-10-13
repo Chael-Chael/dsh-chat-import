@@ -109,10 +109,11 @@ For TUI compatibility, plugin-provided tools are injected into context by defaul
 
 For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 
-Companion plugins can use the optional `chatImport` host service through
-`ctx.get('chatImport').importPath({ format, path, ...options })` to reuse the same import
-pipeline as `import_chat`. Single-session results include `sessionId`; callers should
-degrade gracefully when the service is absent.
+Third-party plugins can use the optional `chatImport` host service through
+`scanDiscover()`, `importPath()`, `importAll()`, and `resumeSummary()` to reuse the same
+discovery, import, batch-import, and handoff-summary pipelines as the built-in tools and
+commands. Single-session results include `sessionId`; callers should degrade gracefully
+when the service is absent.
 
 ## Features
 
