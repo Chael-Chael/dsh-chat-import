@@ -23,8 +23,21 @@ export declare const Config: unknown
 /** 本插件消费的 host 公开服务最小面（sessionPersistence / fs / tools / workspaceRegistry）。 */
 export interface HostContext {
   tools: { register(tool: unknown): unknown }
+  provide?(name: string, service: unknown): unknown
   get?(name: string): unknown
   inject?(deps: string[], callback?: (ctx: Record<string, unknown>) => void): unknown
+}
+
+/** Public third-party-plugin service registered as `chatImport` by apply(). */
+export interface ChatImportService {
+  /** Read-only discovery using the same scanners and cache as scan_discover. */
+  scanDiscover(input?: ScanDiscoverParams, signal?: AbortSignal): Promise<ScanDiscoverResult>
+  /** Import one path or a supported batch path using the same pipeline as import_chat. */
+  importPath(input: ImportChatOptions, signal?: AbortSignal): Promise<ImportResult>
+  /** Import every pending session returned by discovery. */
+  importAll(input?: ImportAllParams, signal?: AbortSignal): Promise<ImportAllResult>
+  /** Create a safe handoff summary for the current DSH conversation. */
+  resumeSummary(input: ResumeSummaryParams, signal?: AbortSignal): Promise<ResumeSummaryResult>
 }
 
 /** config：宿主解析后的条目配置（0.1.7 下 volatile 字段是带 get() 的实时引用）。 */
@@ -664,4 +677,52 @@ export interface ScanDiscoverResult {
   sessions: DiscoveredSession[]
   /** 本次扫描失败的目标；空数组 = 全部目标扫描成功。 */
   warnings: ScanWarning[]
+}
+
+export interface ImportAllParams extends ScanDiscoverParams {
+  /** Import tombstoned or already imported sources as fresh copies when true. */
+  force?: boolean
+  /** Whether to store source images as host attachments. */
+  storeImages?: boolean
+  /** Context budget override in tokens. */
+  budget?: number
+}
+
+export interface ImportAllResult {
+  mode: 'batch'
+  scanned: number
+  imported: number
+  appended: number
+  skipped: number
+  failed: number
+  warnings: ScanWarning[]
+  errors: Array<{ sourcePath: string; error: string }>
+  results: Array<{
+    format: ScanFormat
+    sourcePath: string
+    sourceSessionId: string
+    status: string
+    error?: string
+    result?: ImportResult
+  }>
+}
+
+export interface ResumeSummaryParams {
+  /** Only Claude Code and Codex transcript summaries are supported. */
+  format: 'claude' | 'codex'
+  /** Transcript path returned by scanDiscover. */
+  path: string
+  /** Optional source session id included in the heading. */
+  sessionId?: string
+}
+
+export interface ResumeSummaryResult {
+  format: 'claude' | 'codex'
+  sessionId?: string
+  summary: string
+  title?: string | null
+  lastUserPrompt: string
+  files: string[]
+  lastTool: string | null
+  skipped: number
 }
