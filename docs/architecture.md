@@ -243,3 +243,16 @@
   3. **提示不写进扫描书签**：在书签命中之后叠加，缓存行更新即时可见，不需要 bump `SCAN_CACHE_VERSION`；三处 host 面调用点（面板路由 / `scan_discover` / 会话启动提示）与 `persistedIds` 共用同一趟 `list()`，零额外 I/O。
 - **代价**：依赖一个可选挂载的服务——部署不挂 `session-projection-cache` 时标题仍空（接受的降级，不是错误）；缓存行可能落后于日志（节流写回），由「只补不覆盖」承担，来源已读到的标题（含改名）一律优先；提示补出的 `cwd` 让 git 分支探针多跑几个目录（一次扫描内记忆化）。本机实测：`dsh4` 无标题 214 → 87 条，`dsh-claude-style` 由 63 + 43 两组并回 106 一组。
 - **重审条件**：宿主把标题并入 `sessionPersistence.list()` 的 header（或提供列表级标题面）时，本层整体删除；宿主移除 / 改名 `sessionProjectionCache` 时退回「大 `.zstd` 无标题」，届时再评估按头部窗口流式解压（只解前 256KB 压缩字节：本机实测 127 个日志全部取到会话头、125 个取到标题，代价约 70ms/文件）。
+
+---
+
+## D24. 对外暴露 `chatImport` Host Service，批量入口只留一份编排（2026-10 定）
+
+- **背景**：第三方插件要复用「发现 → 导入 → 批量导入 → 交接摘要」只能自己拼装——工具面要求模型轮次、命令面只有文本返回值、面板要 HTTP。为此新增 `lib/chat-import-service.mjs`，把已有编排包成服务注册进 host（`ctx.provide('chatImport', …)`），方法为 `scanDiscover` / `importPath` / `importAll` / `resumeSummary`：单会话结果保留 `sessionId`，批量结果带逐条 `results` 与扫描 `warnings`。服务的第一版把批量循环写成了**第二份**（`/import-all` 命令里那份的副本），两份立刻出现可观测的漂移：命令面不支持 `force`、不返回逐条结果、把扫描 `warnings` 整个丢掉（某来源扫描抛错时读成「扫描 0 个会话」）。
+- **决定**：
+  1. **服务是发布面，不是新实现**：四个方法一律转投既有编排——`buildImportExecutor` / `importDiscoveryItem`（`lib/toolkit.mjs`）、`runScanDiscover`（`lib/discovery-host.mjs`）、`summarizeClaudeJsonl` / `summarizeCodexJsonl`（`lib/handoff.mjs`）。服务自己不含解析、落盘或计数口径。
+  2. **批量编排导出为具名函数 `runChatImportAll(ctx, registryDir, input, signal)`**（同文件）：`/import-all` 命令与服务方法都调它，命令只负责解析参数与渲染 `formatAllImport` 的文案。**命令不读 `ctx.get('chatImport')`**——服务注册依赖 host 提供 `ctx.provide`（缺席时服务不注册），命令面则必须在任何 host 上都能用；共用实现放在模块里同时满足两件事，且不留「服务缺席时另走一份实现」的分支。
+  3. **对外方法签名即契约**：`lib/index.d.ts` 声明 `ChatImportService` 与 `ImportAllParams` / `ImportAllResult` / `ResumeSummaryParams` / `ResumeSummaryResult`；`resumeSummary` 只收 `claude` / `codex`（其余来源没有交接摘要语义，且**不创建、不打开**新会话）。`ctx.provide` 缺失（老 host）时不注册、不抛错，插件照常激活。
+  4. **命令面不得吞掉服务面已有的信息**：`formatAllImport` 把扫描失败逐来源点名、逐条失败列前 5 条并折出省略行；「一条也没扫到」返回 `error` 而不是 `success` 文案。
+- **代价**：`lib/command.mjs` 多一个对 `lib/chat-import-service.mjs` 的导入（两者是 host 面模块，不违 D3 的纯层边界）；服务是长期对外 ABI——`ImportAllResult` 的字段名改动会影响第三方调用方，只能加字段不能改名；`/import-all` 的 `--force` 新增了「必须带 path」的约束（无限制的全量重导会为每个已导入会话铸副本）。
+- **重审条件**：宿主提供官方的插件间服务注册 / 发现机制（取代直接 `ctx.provide`）时，注册那一步改走该机制；服务方法的返回结构若要收进宿主的类型体系，以那份声明为准并删除本仓库的手写类型。

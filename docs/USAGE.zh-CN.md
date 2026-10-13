@@ -258,7 +258,7 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 
 插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一重导 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或旧工具形别名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。
 
-**`/import-all [source] [path]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线：未变跳过、未续聊续写、已续聊另建副本，归档与已忽略源跳过，失败逐条上报。
+**`/import-all [source] [path] [--force]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线：未变跳过、未续聊续写、已续聊另建副本，归档与已忽略源跳过，扫描失败的来源与逐条失败都点名上报。`--force` 让已导入 / 归档的会话也另铸副本重导，**必须带 `path` 限定范围**（不限定就是把每个已导入会话都重导一份）。批量编排与第三方插件拿到的 `chatImport.importAll` 是同一个函数（`lib/chat-import-service.mjs` 的 `runChatImportAll`），两处计数与失败口径不会分叉。
 
 **`/ignores`** 列出忽略表（归档 / 删除 / 删工作区自动登记）；**`/ignore <sessionId|sourcePath>`** 手动忽略一个源；**`/unignore <sessionId|sourcePath|all>`** 解除忽略（`all` 清空）。被忽略的源在重扫与 `/import-all` 中一律跳过；`force: true` 可越权导入一次（不解除墓碑）。
 

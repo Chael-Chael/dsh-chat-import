@@ -2,6 +2,40 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.26.0] - 2026-10-13
+
+[中文](#cn-0.26.0) | [English](#en-0.26.0)
+
+<h3 id="cn-0.26.0">新增功能</h3>
+
+- **新增 `chatImport` Host Service，供第三方插件复用整条导入管线**：插件入口注册可选服务 `chatImport`（经宿主的 `ctx.provide`），暴露四个方法——`scanDiscover()`（只读发现，与 `scan_discover` 同一批扫描器与缓存）、`importPath()`（单路径或受支持的批量路径，结果形状与 `import_chat` 一致：单会话带 `sessionId`、批量带 `results`）、`importAll()`（导入发现出的全部待导入会话，返回计数 + 逐条结果 + 扫描 `warnings`）、`resumeSummary()`（Claude Code / Codex 交接摘要，只生成摘要注入当前会话，不创建也不打开新会话）。服务缺席（宿主不提供 `ctx.provide`）时不注册、不抛错；方法接受可选的 `AbortSignal`。类型声明见 `lib/index.d.ts` 的 `ChatImportService`。
+- **`/import-all` 支持 `--force`**：已导入 / 归档的会话也另铸副本重导；必须带 `path` 限定范围，不限定范围的全量重导会被拒绝并说明用法。
+
+<h3 id="cn-0.26.0">体验优化</h3>
+
+- **`/import-all` 不再吞掉扫描失败**：某个来源 / 数据根扫描抛错时，命令结果逐来源点名（格式 + 目标 + 错误）；此前 `scan_discover` 与面板都会报告这类失败，只有命令面把它丢掉，读起来像「扫描 0 个会话」。
+- **`/import-all` 的逐条失败明细带省略行**：失败超过 5 条时列出前 5 条并注明「另有 N 条未列出」，此前多余条目静默消失；一条也没扫到时空结果返回错误状态，不再以成功文案收场。
+
+<h3 id="cn-0.26.0">其他变更</h3>
+
+- **批量导入编排只留一份**：`/import-all` 的循环（扫描 → 逐会话导入 → registry 批提交 → 聚合计数）此前在命令面与服务面各有一份，已收进 `lib/chat-import-service.mjs` 的 `runChatImportAll`，命令只解析参数并渲染文案（`formatAllImport`）。`--force`、逐条 `results`、扫描 `warnings` 因此在两条入口上同口径。
+
+<h3 id="en-0.26.0">New Features</h3>
+
+- **New `chatImport` host service for third-party plugins**: the plugin entry registers an optional `chatImport` service (through the host's `ctx.provide`) exposing four methods — `scanDiscover()` (read-only discovery on the same scanners and cache as `scan_discover`), `importPath()` (a single path or a supported batch path, with the same result shape as `import_chat`: `sessionId` for a single session, `results` for a batch), `importAll()` (import every pending discovered session, returning counts, per-session results and scan `warnings`), and `resumeSummary()` (Claude Code / Codex handoff summary; it only produces the summary for the current session and neither creates nor opens a new one). The service is skipped without error when the host has no `ctx.provide`, and every method takes an optional `AbortSignal`. Types: `ChatImportService` in `lib/index.d.ts`.
+- **`/import-all` gained `--force`**: already-imported / archived sessions are re-imported as fresh copies; it requires a `path` to bound the scope, and an unbounded invocation is rejected with the usage line.
+
+<h3 id="en-0.26.0">Improvements</h3>
+
+- **`/import-all` no longer swallows scan failures**: when a source or data root fails to scan, the command names it (format + target + error). `scan_discover` and the panel already reported these failures; only the command dropped them, so the outcome read like "scanned 0 sessions".
+- **`/import-all` per-session failures now carry an elision line**: beyond five failures the first five are listed plus "N more not listed" instead of silently disappearing, and an empty scan reports an error state rather than a success line.
+
+<h3 id="en-0.26.0">Chores</h3>
+
+- **One implementation of the batch orchestration**: the `/import-all` loop (scan → per-session import → registry batch commit → counting) existed once in the command layer and once in the service; it now lives in `runChatImportAll` (`lib/chat-import-service.mjs`) and the command only parses arguments and renders text (`formatAllImport`). `--force`, per-session `results` and scan `warnings` therefore behave identically on both entry points.
+
+**Full Changelog**: [v0.25.2...v0.26.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.25.2...v0.26.0)
+
 ## [0.25.2] - 2026-10-06
 
 [中文](#cn-0.25.2) | [English](#en-0.25.2)

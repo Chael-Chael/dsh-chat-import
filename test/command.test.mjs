@@ -190,7 +190,7 @@ test('REQ-29 /import-all：命令注册 + 指定路径批量导入 + 幂等重�
   registerImportCommand(env.ctx, env.registryDir)
   const cmd = env.getCommand('import-all')
   assert.ok(cmd, 'import-all 命令应注册')
-  assert.equal(cmd.input.hint, '[source] [path]')
+  assert.equal(cmd.input.hint, '[source] [path] [--force]')
   assert.ok(cmd.description.includes('/import-all'))
 
   const srcDir = mkdtempSync(join(tmpdir(), 'dsh-importall-src-'))
@@ -228,6 +228,47 @@ test('REQ-29 /import-all：仅路径（全部格式探测）+ 未知来源提示
   const typo = await cmd.handler({ rawInput: 'claud' })
   assert.equal(typo.kind, 'error')
   assert.ok(typo.text.includes('未知来源'), typo.text)
+})
+
+test('REQ-29 /import-all --force：带 path 时重导已导入会话（另铸副本）；不带 path 时拒绝', async () => {
+  const env = makeCtx()
+  registerTools(env.ctx, env.registryDir)
+  registerImportCommand(env.ctx, env.registryDir)
+  const cmd = env.getCommand('import-all')
+
+  const srcDir = mkdtempSync(join(tmpdir(), 'dsh-importall-force-'))
+  writeFileSync(join(srcDir, 'forced.jsonl'), simpleClaudeJsonl('forced'), 'utf8')
+
+  const first = await cmd.handler({ rawInput: 'claude ' + srcDir })
+  assert.equal(first.kind, 'success', first.text)
+  assert.ok(first.text.includes('新增 1'), first.text)
+
+  // --force 摘成开关：不参与路径解析（此前会被当成路径去扫一个不存在的目录）
+  const forced = await cmd.handler({ rawInput: '--force claude ' + srcDir })
+  assert.equal(forced.kind, 'success', forced.text)
+  assert.ok(forced.text.includes('新增 1'), forced.text)
+  assert.equal([...env.sessions.keys()].filter((id) => id.includes('forced')).length, 2, '应另铸一份副本')
+
+  // 不限定范围的全量 --force 会重导每一个已导入会话 → 拒绝并说明用法
+  const unbounded = await cmd.handler({ rawInput: '--force' })
+  assert.equal(unbounded.kind, 'error')
+  assert.ok(unbounded.text.includes('必须带 path'), unbounded.text)
+})
+
+test('REQ-29 /import-all：扫描失败的来源如实点名（不再读成「扫描 0 个会话」）', async () => {
+  const env = makeCtx()
+  registerTools(env.ctx, env.registryDir)
+  registerImportCommand(env.ctx, env.registryDir)
+  const cmd = env.getCommand('import-all')
+
+  // trae 的库读取对「存在但不是 SQLite」的文件大声抛错（见 trae 用例）→ 该目标进 scan
+  // warnings；命令面必须点名这个来源，而不是报「扫描 0 个会话」了事。
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-importall-warn-'))
+  writeFileSync(join(dir, 'state.vscdb'), 'not a sqlite database\n', 'utf8')
+  const out = await cmd.handler({ rawInput: 'trae ' + dir })
+  assert.ok(out.text.includes('/import-all 完成：扫描 0 个会话'), out.text)
+  assert.ok(out.text.includes('! trae 扫描失败（' + dir + '）'), out.text)
+  assert.ok(out.text.includes('file is not a database'), out.text)
 })
 
 // ── /attach-workspaces ──────────────────────────────────────────────
