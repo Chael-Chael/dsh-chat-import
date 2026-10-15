@@ -139,3 +139,37 @@ test('readSessions：同步 SQLite 读取前先让出一轮事件循环（库与
   order.push('read-done')
   assert.deepEqual(order, ['macrotask', 'read-done'])
 })
+
+test('readLines：跨块中文、CRLF、空行与无末尾换行，不整读文件', async () => {
+  const ctx = fakeCtx(new Map([['index', '标题一\r\n\r\n标题二\n末行']]), { chunkSize: 1 })
+  ctx.fs.readText = async () => { throw new Error('不得整读') }
+  const out = []
+  for await (const line of makeDiscoveryHost(ctx).readLines('index')) out.push(line)
+  assert.deepEqual(out, ['标题一', '', '标题二', '末行'])
+})
+
+test('readLines：提前停止时关闭宿主流，读取失败向调用方传播', async () => {
+  let closed = false
+  const ctx = { fs: { resolve: async (p) => p, async *streamText() {
+    try { yield 'first\n'; yield 'second\n' } finally { closed = true }
+  } } }
+  for await (const line of makeDiscoveryHost(ctx).readLines('index')) { assert.equal(line, 'first'); break }
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(closed, true)
+  ctx.fs.streamText = async function* () { throw new Error('read failed') }
+  await assert.rejects(async () => { for await (const _line of makeDiscoveryHost(ctx).readLines('index')) { assert.fail('unexpected line: ' + _line) } }, /read failed/)
+})
+
+test('readLines：无宿主 streamText 时使用 processPath 文件流，不调用 readText', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'codex-index-lines-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, 'session_index.jsonl')
+  writeFileSync(path, '中文标题\r\n最后一行')
+  const host = makeDiscoveryHost({ fs: {
+    resolve: async () => ({ targetKey: 'index' }), processPath: () => path,
+    readText: async () => { throw new Error('不得整读') },
+  } })
+  const out = []
+  for await (const line of host.readLines('index')) out.push(line)
+  assert.deepEqual(out, ['中文标题', '最后一行'])
+})

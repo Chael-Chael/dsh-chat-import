@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 // discovery-jsonl.test.mjs — JSONL 族（codex / cursor / reasonix / openclaw / pi）的发现
 // 签名自拒、子代理过滤、项目名回退、伴生文件排除。
 // 由 test/discovery.test.mjs 按 lib/discovery/ 的实现族拆出（纯移动：用例与断言未改）。
@@ -5,6 +7,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { discoverSessions, clearScanCache, clearInflightScans } from '../lib/discovery.mjs'
+import { convertCodexJsonl } from '../lib/convert/codex.mjs'
 import { resolveCursorSlugPath, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 import { memoryHost } from './_support/discovery-host.mjs'
 import { FAKE_HOME as HOME, j } from './_support/discovery-host.mjs'
@@ -253,4 +256,100 @@ test('codex：扁平 archived_sessions/ 下的 rollout 可被发现', async () =
   assert.equal(sessions[0].sessionId, '019e3b3f-636d-7cb3-aaab-0255eb45ad4f')
   assert.equal(sessions[0].title, '归档会话也要能导入')
   assert.equal(sessions[0].sourcePath, archived)
+})
+
+for (const shape of ['separate-message', 'separate-block', 'same-block', 'string-content']) {
+  test(`codex：页面上下文不成为标题，保留真实提问（${shape}）`, async () => {
+    const root = join(HOME, '.codex', 'sessions')
+    const path = join(root, 'rollout-page-context.jsonl')
+    const context = '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>'
+    const question = 'Explain the cache invalidation policy'
+    const block = (text) => ({ type: 'input_text', text })
+    const user = (content) => ({ type: 'response_item', payload: { type: 'message', role: 'user', content } })
+    const messages = shape === 'separate-message' ? [user([block(context)]), user([block(question)])]
+      : shape === 'separate-block' ? [user([block(context), block(question)])]
+        : shape === 'same-block' ? [user([block('  ' + context + '\n' + question)])]
+          : [user(context), user(question)]
+    const text = [
+      { type: 'session_meta', payload: { id: 'page-context-test', cwd: '/demo' } },
+      ...messages,
+    ].map(j).join('\n')
+    const host = memoryHost(new Map([[root, { type: 'dir' }], [path, { type: 'file', text }]]))
+    const result = await discoverSessions({ path: root, format: 'codex', query: 'invalidation', host, imports: {} })
+    assert.equal(result.sessions.length, 1)
+    assert.equal(result.sessions[0].title, question)
+    if (shape !== 'string-content') {
+      const converted = convertCodexJsonl(text, { sourcePath: path })
+      assert.equal(converted.title, question)
+      assert.equal(converted.turns.length, 1)
+      assert.equal(converted.turns[0].prompt, question)
+    }
+  })
+}
+
+test('codex：只有页面上下文时不生成上下文标题', async () => {
+  const root = join(HOME, '.codex', 'sessions')
+  const path = join(root, 'rollout-context-only.jsonl')
+  const text = [
+    j({ type: 'session_meta', payload: { id: 'context-only' } }),
+    j({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>' }] } }),
+  ].join('\n')
+  const host = memoryHost(new Map([[root, { type: 'dir' }], [path, { type: 'file', text }]]))
+  const result = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
+  assert.equal(result.sessions.length, 1)
+  assert.equal(result.sessions[0].title, null)
+})
+
+for (const layout of ['sessions', 'archived_sessions']) {
+  test(`codex：优先索引标题，改名不依赖 rollout 变化（${layout}）`, async (t) => {
+    const root = join(HOME, '.codex', layout)
+    const path = join(root, 'rollout-title-index.jsonl')
+    const index = join(HOME, '.codex', 'session_index.jsonl')
+    const cacheDir = mkdtempSync(join(tmpdir(), 'codex-title-index-'))
+    t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
+    const text = [
+      j({ type: 'session_meta', payload: { id: 'indexed-session' } }),
+      j({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Opening prompt is not the title' }] } }),
+    ].join('\n')
+    const files = new Map([
+      [root, { type: 'dir' }], [path, { type: 'file', text, mtimeMs: 1 }],
+      [index, { type: 'file', text: [j({ id: 'indexed-session', thread_name: 'Old title' }), '{broken', j({ id: 'indexed-session', thread_name: 'Saved session title' })].join('\n') }],
+    ])
+    const host = memoryHost(files)
+    const scan = (query = '') => discoverSessions({ path: root, format: 'codex', query, host, imports: {}, cacheDir })
+    assert.equal((await scan('Saved session')).sessions[0].title, 'Saved session title')
+    files.set(index, { type: 'file', text: j({ id: 'indexed-session', thread_name: 'Renamed session' }) })
+    clearScanCache()
+    const readHead = host.readHead
+    const reads = []
+    host.readHead = async (file, maxBytes) => { reads.push(file); return readHead(file, maxBytes) }
+    assert.equal((await scan('Renamed')).sessions[0].title, 'Renamed session')
+    assert.ok(!reads.includes(path), '页书签命中时也应更新索引标题')
+    files.delete(index)
+    clearScanCache()
+    assert.equal((await scan()).sessions[0].title, 'Opening prompt is not the title')
+  })
+}
+
+test('codex：超过 16 MiB 的标题索引流式读到末尾，最后一次重命名生效', async () => {
+  const root = join(HOME, '.codex', 'sessions')
+  const path = join(root, 'rollout-large-index.jsonl')
+  const index = join(HOME, '.codex', 'session_index.jsonl')
+  const text = j({ type: 'session_meta', payload: { id: 'large-index-session' } })
+  const host = memoryHost(new Map([[root, { type: 'dir' }], [path, { type: 'file', text }]]))
+  const stat = host.stat
+  host.stat = async (file) => file === index ? { type: 'file', size: 20 * 1024 * 1024 } : stat(file)
+  host.readText = async () => { throw new Error('不得整读索引') }
+  let bytes = 0
+  host.readLines = async function* (file) {
+    assert.equal(file, index)
+    const line = j({ id: 'large-index-session', thread_name: '旧标题' + 'x'.repeat(1000) })
+    while (bytes <= 17 * 1024 * 1024) { bytes += Buffer.byteLength(line) + 1; yield line }
+    yield '{broken'
+    yield j({ id: 'large-index-session', thread_name: '末尾重命名标题' })
+    yield j({ id: 'large-index-session', thread_name: ' ' })
+  }
+  const result = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
+  assert.ok(bytes > 16 * 1024 * 1024)
+  assert.equal(result.sessions[0].title, '末尾重命名标题')
 })
