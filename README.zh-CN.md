@@ -124,6 +124,8 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 | 导出 | 上下文工具 | DSH 会话序列化回外部Agents |
 | 忽略 | 自动 + `/ignores` 命令 | 归档 / 删除 / 删工作区自动登记源，重扫跳过；`/ignore`、`/unignore` 管理忽略表 |
 
+Codex 扫描优先使用 `session_index.jsonl` 中保存的会话标题（`thread_name`），支持会话重命名；没有索引标题时，才按与导入共用的提取逻辑回退到首条真实提问，排除注入的页面上下文。标题索引通过流逐行读取，同一会话采用最后一条有效标题记录。
+
 ## 文档
 
 | 文档 | 说明 |

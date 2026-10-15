@@ -125,6 +125,8 @@ when the service is absent.
 | Export | Context tool | Serialize DSH sessions back to external agents |
 | Ignore | Automatic + `/ignores` commands | Archive / delete / workspace-removal auto-registers the source so rescans skip it; `/ignore`, `/unignore` manage the table |
 
+Codex discovery prefers saved session titles (`thread_name` in `session_index.jsonl`), including renamed sessions. When no indexed title is available, it falls back to the first real user prompt using the same extraction as import; injected page context is excluded. The title index is streamed line by line, using the last valid title record for each session.
+
 ## Docs
 
 | Document | Description |
