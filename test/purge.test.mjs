@@ -93,7 +93,12 @@ test('deleteImportedSession：删除工件 + 清 registry（仅本插件标记�
   assert.equal(exists, false, '工件目录应已删除')
 })
 
-test('deleteImportedSession：工件被占用（rm 后仍存在）→ 中止且 registry 保留', async () => {
+// 「rm 后仍存在」靠权限拒绝造：Linux 只读目录（unlink 要目录写权限）、Windows 只读文件。
+// 超级用户绕过权限位（root 容器 / root 身份跑测试），锁造不出来，删除必然成功——此时跳过；
+// 非 root 的 Linux 与 Windows 上照常真跑（本文件其余用例不受影响）。
+const rootSkipsPermissionLock = process.getuid?.() === 0
+
+test('deleteImportedSession：工件被占用（rm 后仍存在）→ 中止且 registry 保留', { skip: rootSkipsPermissionLock && 'root 绕开权限位，无法制造占用' }, async () => {
   const dir = resolveRegistryDir()
   const sourcePath = 'D:\\demo\\locked.jsonl'
   const sessionId = 'import-locked-001'
@@ -106,7 +111,8 @@ test('deleteImportedSession：工件被占用（rm 后仍存在）→ 中止且 
   const artFile = join(artDir, 'session.jsonl')
   writeFileSync(artFile, '{"type":"x"}\n')
   // 跨平台真实锁：Windows 靠子进程占用 cwd（使用中的目录不可删，rimraf 的 chmod
-  // 重试也解不开），Linux 靠只读目录（unlink 需要目录写权限）
+  // 重试也解不开），Linux 靠只读目录 / 只读文件（unlink 需要目录写权限；超级用户不受限，
+  // 故 root 下本用例跳过）
   chmodSync(artDir, 0o555)
   chmodSync(artFile, 0o444)
   const child = spawn(process.execPath, ['-e', 'process.stdout.write("ready\\n"); setTimeout(() => {}, 5000)'], { cwd: artDir, stdio: ['ignore', 'pipe', 'ignore'] })
