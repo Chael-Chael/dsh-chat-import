@@ -278,14 +278,59 @@ for (const shape of ['separate-message', 'separate-block', 'same-block', 'string
     const result = await discoverSessions({ path: root, format: 'codex', query: 'invalidation', host, imports: {} })
     assert.equal(result.sessions.length, 1)
     assert.equal(result.sessions[0].title, question)
-    if (shape !== 'string-content') {
-      const converted = convertCodexJsonl(text, { sourcePath: path })
+    const converted = convertCodexJsonl(text, { sourcePath: path })
+    if (shape === 'string-content') {
+      // content 为字符串的旧形态：发现层的首问兜底能取到（它把字符串折成单块），但导入侧的
+      // 转换器只认数组 content，标题与开轮都为空——两层的既有差异，防止任一改动把它悄悄换成
+      // 另一种（不是本次要改的行为，改动它需要独立的用例与说明）。
+      assert.equal(converted.title, '')
+      assert.equal(converted.turns.length, 0)
+    } else {
       assert.equal(converted.title, question)
       assert.equal(converted.turns.length, 1)
       assert.equal(converted.turns[0].prompt, question)
     }
   })
 }
+
+// 闭标签缺失时格式未知：此时不猜边界（宁可漏过上下文，不误删块内可能存在的提问正文），
+// 该块按「trim 后以 '<' 开头即注入」挡住——发现层标题与导入侧开轮都不得拿到信封原文。
+test('codex：未闭合的页面上下文信封不成为标题，同块真正文不误删不误取', async () => {
+  const root = join(HOME, '.codex', 'sessions')
+  const path = join(root, 'rollout-unclosed-context.jsonl')
+  const unclosed = '<external_codex_apps_open_page>{"page_id":null}\nreal question inside'
+  const text = [
+    j({ type: 'session_meta', payload: { id: 'unclosed-context' } }),
+    j({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: unclosed }] } }),
+  ].join('\n')
+  const host = memoryHost(new Map([[root, { type: 'dir' }], [path, { type: 'file', text }]]))
+  const result = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
+  assert.equal(result.sessions.length, 1)
+  assert.equal(result.sessions[0].title, null)
+  const converted = convertCodexJsonl(text, { sourcePath: path })
+  assert.equal(converted.title, '')
+  assert.equal(converted.turns.length, 0)
+})
+
+// 同一块里多个信封夹着提问：剥离按「完整配对」逐个走，两侧都只留提问（不在信封边界上猜）。
+test('codex：同块多段页面上下文之间的提问完整保留', async () => {
+  const root = join(HOME, '.codex', 'sessions')
+  const path = join(root, 'rollout-multi-context.jsonl')
+  const context = '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>'
+  const question = 'Which envelope pairing wins?'
+  const text = [
+    j({ type: 'session_meta', payload: { id: 'multi-context' } }),
+    j({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: context + '\n' + question + '\n' + context }] } }),
+  ].join('\n')
+  const host = memoryHost(new Map([[root, { type: 'dir' }], [path, { type: 'file', text }]]))
+  const result = await discoverSessions({ path: root, format: 'codex', query: 'envelope', host, imports: {} })
+  assert.equal(result.sessions.length, 1)
+  assert.equal(result.sessions[0].title, question)
+  const converted = convertCodexJsonl(text, { sourcePath: path })
+  assert.equal(converted.title, question)
+  assert.equal(converted.turns.length, 1)
+  assert.equal(converted.turns[0].prompt, question)
+})
 
 test('codex：只有页面上下文时不生成上下文标题', async () => {
   const root = join(HOME, '.codex', 'sessions')
